@@ -1,7 +1,7 @@
 import pandas as pd
-from pages.esr.esr_utils import create_empty_figure
+from MacrOSINT.pages.esr.esr_utils import create_empty_figure
 import plotly.express as px
-from data.data_tables import ESRTableClient
+from MacrOSINT.data.data_tables import ESRTableClient
 
 table_client = ESRTableClient()
 
@@ -425,7 +425,7 @@ def create_analytics_commitment_chart(data, countries, country_display_mode, cha
     """Create analytics charts for sales_backlog, fulfillment_rate, commitment_utilization"""
     try:
         # Perform commitment vs shipment analysis
-        from models.agricultural.agricultural_analytics import ESRAnalyzer
+        from MacrOSINT.models.agricultural.agricultural_analytics import ESRAnalyzer
         
         # Handle country display mode for analysis
         analysis_data = data.copy()
@@ -572,7 +572,7 @@ def new_commitment_analysis_chart_update(chart_id: str, store_data=None, **menu_
         filtered_data = data[data['country'].isin(countries)]
         if not filtered_data.empty:
             # Use ESRAnalyzer to aggregate multi-country data
-            from models.agricultural.agricultural_analytics import ESRAnalyzer
+            from MacrOSINT.models.agricultural.agricultural_analytics import ESRAnalyzer
             aggregated_data = ESRAnalyzer.aggregate_multi_country_data(filtered_data, countries)
             title_suffix = f"All Selected Countries ({len(countries)})"
             chart_data = aggregated_data
@@ -628,7 +628,7 @@ def new_commitment_analysis_chart_update(chart_id: str, store_data=None, **menu_
           'esr_commitment_frame2_chart_0' in chart_id or 
           'esr_commitment_frame2_chart_1' in chart_id):
         # Analytics charts - commitment vs shipment analysis
-        from models.agricultural.agricultural_analytics import ESRAnalyzer
+        from MacrOSINT.models.agricultural.agricultural_analytics import ESRAnalyzer
         
         # Initialize analyzer with the data
         analyzer = ESRAnalyzer(chart_data.set_index('weekEndingDate'), 'grains')
@@ -1003,7 +1003,7 @@ def commitment_analytics_chart(chart_ids, store_data=None, **menu_values):
             return handle_error_return("No data for selected criteria", chart_ids)
         
         # Perform commitment vs shipment analysis
-        from models.agricultural.agricultural_analytics import ESRAnalyzer
+        from MacrOSINT.models.agricultural.agricultural_analytics import ESRAnalyzer
         
         # Handle country display mode for analysis
         analysis_data = data.copy()
@@ -1254,7 +1254,7 @@ def seasonal_overlay_chart(chart_ids, store_data=None, **menu_values):
             return handle_error_return("No data for selected countries", chart_ids)
 
         # Generate multi-year seasonal overlay using ESRAnalyzer
-        from models.agricultural.agricultural_analytics import ESRAnalyzer
+        from MacrOSINT.models.agricultural.agricultural_analytics import ESRAnalyzer
         
         # Determine commodity type from data patterns
         commodity_type = 'grains'  # Default, could be enhanced to detect from data
@@ -1384,7 +1384,7 @@ def seasonal_pattern_chart(chart_ids, store_data=None, **menu_values):
             return handle_error_return("No data for selected countries", chart_ids)
 
         # Generate detailed seasonal analysis using ESRAnalyzer
-        from models.agricultural.agricultural_analytics import ESRAnalyzer
+        from MacrOSINT.models.agricultural.agricultural_analytics import ESRAnalyzer
         
         # Determine commodity type from data patterns
         commodity_type = 'grains'  # Default, could be enhanced to detect from data
@@ -1553,7 +1553,7 @@ def unified_seasonal_analysis_update(chart_ids, store_data=None, **menu_values):
         # Handle country aggregation
         if country_display_mode == 'sum' and len(countries) > 1:
             # Aggregate data for multiple countries
-            from models.agricultural.agricultural_analytics import ESRAnalyzer
+            from MacrOSINT.models.agricultural.agricultural_analytics import ESRAnalyzer
             data = ESRAnalyzer.aggregate_multi_country_data(data, countries)
         
         # Filter by date range if provided
@@ -1578,7 +1578,7 @@ def unified_seasonal_analysis_update(chart_ids, store_data=None, **menu_values):
             return handle_error_return("No valid time series data", chart_ids)
         
         # Import seasonal analysis functions
-        from models.seasonal import create_seasonal_index, seasonal_difference
+        from MacrOSINT.models import create_seasonal_index, seasonal_difference
         
         # Create seasonal index with 100.0 scale for percentage display
         seasonal_index = create_seasonal_index(ts_data, frequency='W', scale=100.0)

@@ -5,9 +5,8 @@ Script to rename tables in the HDF5 stores, specifically to fix naming inconsist
 like "soybean" -> "soybeans".
 """
 
-from data.data_tables import ESRTableClient, FASTable, NASSTable
+from MacrOSINT.data.data_tables import ESRTableClient, FASTable, NASSTable
 import os
-from pathlib import Path
 
 
 def rename_soybean_tables():

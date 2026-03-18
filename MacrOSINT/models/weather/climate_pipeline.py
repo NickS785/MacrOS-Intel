@@ -15,15 +15,13 @@ Date: 2024
 import pandas as pd
 import numpy as np
 from datetime import date, datetime
-from typing import Dict, List, Tuple, Optional, Union
+from typing import Dict, List, Union
 import warnings
 from pathlib import Path
 
 # Visualization libraries
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 import seaborn as sns
-from matplotlib.patches import Rectangle
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -32,11 +30,11 @@ import time
 from urllib.request import urlopen
 
 # Import existing modules
-from .county_locator import clean_agricultural_data, rank_counties_by_acres
+from .county_locator import clean_agricultural_data
 from .agclimate import AgClimateAPI, CROP_PARAMETERS
 from .config import NCEI_TOKEN
-from ...data.data_tables import NASSTable
-from .density_station_locator import DensityBasedLocator, find_stations_for_density_data
+from MacrOSINT.data import NASSTable
+from .density_station_locator import DensityBasedLocator
 
 warnings.filterwarnings('ignore')
 plt.style.use('seaborn-v0_8')

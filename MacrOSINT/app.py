@@ -1,6 +1,6 @@
 # app.py - Main application entry point
 import dash
-from dash import html, dcc, page_container, Input, Output, State
+from dash import html, dcc, page_container
 import dash_bootstrap_components as dbc
 import os
 import sys
@@ -36,11 +36,6 @@ navbar = dbc.NavbarSimple(
         dbc.NavItem(dbc.NavLink("Export Sales Reporting",id='esr-link', href="/esr/sales_trends")),
     ]
 )
-
-from pages import trade_bal
-from pages.agricultural import psd_data
-from pages.esr import home
-
 
 # Main layout
 app.layout = html.Div([

@@ -38,18 +38,14 @@ Usage:
 import os
 import time
 import warnings
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import List, Dict, Tuple, Optional, Union
 from dataclasses import dataclass
 from enum import Enum
-import json
-import concurrent.futures
-from functools import lru_cache
 
 import pandas as pd
 import numpy as np
-from scipy import stats
-from pyncei import NCEIBot, NCEIResponse
+from pyncei import NCEIBot
 
 # Optional imports
 try:
@@ -240,7 +236,7 @@ class AgClimateAPI:
             cache_name: Name for cache database
             cache_duration_hours: Cache expiration time in hours
         """
-        from config import NCEI_TOKEN
+        from MacrOSINT.config import NCEI_TOKEN
         self.token = token or NCEI_TOKEN
         if not self.token:
             warnings.warn("No API token provided. Some features may be limited.")

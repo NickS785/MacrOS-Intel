@@ -15,7 +15,7 @@ DOT_ENV = PROJECT_ROOT / ".env"
 
 # Data paths from environment or defaults
 DATA_PATH = os.getenv('data_path', str(DATA_DIR))
-MARKET_DATA_PATH = os.getenv('market_data_path', Path("F:", "Data", "market_data.hd5"))
+MARKET_DATA_PATH = os.getenv('market_data_path', Path("F:", "data", "market_data.hd5"))
 COT_PATH = os.getenv('cot_path', str(DATA_DIR / 'cot'))
 APP_PATH = os.getenv('APP_PATH', str(PROJECT_ROOT))
 

@@ -11,7 +11,7 @@ Author: Agricultural Climate Analysis Team
 
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Tuple, Optional, Union
+from typing import List, Dict, Tuple
 from datetime import date
 from dataclasses import dataclass
 import warnings
@@ -19,8 +19,6 @@ import warnings
 # Clustering and spatial analysis
 from sklearn.cluster import DBSCAN, KMeans
 from sklearn.preprocessing import StandardScaler
-from scipy.spatial.distance import cdist
-from scipy.spatial import cKDTree
 
 # Optional imports for enhanced geospatial analysis
 try:
@@ -74,7 +72,7 @@ class DensityBasedLocator:
         Args:
             ncei_token: NCEI API token for station data retrieval
         """
-        from config import NCEI_TOKEN
+        from MacrOSINT.config import NCEI_TOKEN
         self.ncei_token = ncei_token or NCEI_TOKEN
         self.agclimate_api = AgClimateAPI(self.ncei_token) if self.ncei_token else None
         self.clusters = []

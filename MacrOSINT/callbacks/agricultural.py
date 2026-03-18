@@ -2,9 +2,9 @@ import pandas as pd
 from dash import html
 from plotly import graph_objects as go, express as px
 
-from components.frames import FrameGrid
-from utils.data_tools import store_to_df, df_to_store, get_sample_data, get_multi_year_sample_data, create_empty_figure
-from data.data_tables import TableClient
+from MacrOSINT.components.frames import FrameGrid
+from MacrOSINT.utils.data_tools import store_to_df, df_to_store, get_sample_data, get_multi_year_sample_data, create_empty_figure
+from MacrOSINT.data.data_tables import TableClient
 from dash import Input, Output
 import dash
 

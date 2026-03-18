@@ -9,8 +9,8 @@ import asyncio
 from typing import Dict, List, Optional, Any, Callable
 import pandas as pd
 
-from utils.async_file_manager import AsyncFileManager
-from data.data_tables import TableClient, EIATable, NASSTable, ESRTableClient
+from MacrOSINT.utils.async_file_manager import AsyncFileManager
+from MacrOSINT.data.data_tables import TableClient, EIATable, NASSTable, ESRTableClient
 
 
 class AsyncTableMixin:

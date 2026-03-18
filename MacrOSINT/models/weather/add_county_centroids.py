@@ -28,6 +28,7 @@ def fetch_gazetteer_counties(year: int = 2024) -> pd.DataFrame:
         txt_name = [n for n in zf.namelist() if n.endswith(".txt")][0]
         with zf.open(txt_name) as f:
             gaz = pd.read_csv(f, sep="\t", dtype={"GEOID": str})
+    gaz.columns = gaz.columns.str.strip()
     # Normalize lat/lon as float
     gaz["INTPTLAT"] = gaz["INTPTLAT"].astype(str).str.strip().astype(float)
     gaz["INTPTLONG"] = gaz["INTPTLONG"].astype(str).str.strip().astype(float)
