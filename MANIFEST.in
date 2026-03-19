@@ -1,0 +1,41 @@
+# Include core documentation
+include README.md
+include LICENSE
+include CLAUDE.md
+include requirements.txt
+
+# Include configuration files
+include .env.example
+include pyproject.toml
+
+# Include all TOML mapping files
+recursive-include MacrOSINT *.toml
+
+# Include assets
+recursive-include MacrOSINT/assets *
+
+# Exclude test files from distribution
+recursive-exclude tests *
+recursive-exclude examples *
+
+# Exclude Python cache files
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude *$py.class
+
+# Exclude system files
+global-exclude .DS_Store
+global-exclude .gitignore
+global-exclude .gitattributes
+
+# Exclude IDE files
+recursive-exclude .idea *
+recursive-exclude .vscode *
+global-exclude *.swp
+global-exclude *.swo
+global-exclude *~
+
+# Exclude build artifacts
+recursive-exclude build *
+recursive-exclude dist *
+recursive-exclude *.egg-info *

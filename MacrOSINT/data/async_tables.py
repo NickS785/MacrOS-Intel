@@ -16,8 +16,8 @@ import pandas as pd
 from datetime import datetime
 import inspect
 
-from utils.async_table_wrapper import AsyncTableMixin
-from data.data_tables import EIATable
+from MacrOSINT.utils.async_table_wrapper import AsyncTableMixin
+from MacrOSINT.data.data_tables import EIATable
 
 
 class AsyncNGTable(AsyncTableMixin, EIATable):

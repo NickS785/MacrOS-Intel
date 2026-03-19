@@ -1,17 +1,13 @@
 import os
-from datetime import date, datetime, timedelta
-
-import requests
-from dateutil.relativedelta import relativedelta
+from datetime import date, datetime
+import asyncio as aio
 import pandas as pd
 import numpy as np
-from myeia import API
 from dotenv import load_dotenv
-from config import DOT_ENV
+from MacrOSINT.config import DOT_ENV
 from copy import copy
-from data.sources.eia.EIA_API import EIAClient, EIAAPIError, AsyncEIAClient
-from typing import Optional, List, Tuple
-from enum import Enum
+from MacrOSINT.data.sources.eia.EIA_API import EIAClient, AsyncEIAClient
+from typing import List, Tuple
 
 
 # -----------------------------
@@ -514,6 +510,14 @@ class NatGasHelper:
                     duoarea=self.regions,
                     process=["SWO"],
                 )),
+            'spot_prices': ClientParams(
+                route='/pri/fut',
+                columns_col='product',
+                frequency='daily',
+                facets=FacetParams(
+                    process=["PS0"]
+                )
+            ),
 
             'state_pct_of_consumption': ClientParams(
                 route='/cons/pns',
@@ -547,11 +551,69 @@ class NatGasHelper:
                 facets=FacetParams(
                     process=['FGW'],
                     duoarea=[
-                        'NUS', 'R3FM', 'R98', 'SAK', 'SAL', 'SAR', 'SAZ', 'SCA', 'SCO', 'SFL', 
-                        'SID', 'SIL', 'SIN', 'SKS', 'SKY', 'SLA', 'SMD', 'SMI', 'SMO', 'SMS', 
-                        'SMT', 'SND', 'SNE', 'SNM', 'SNV', 'SNY', 'SOH', 'SOK', 'SOR', 'SPA', 
+                        'NUS', 'R3FM', 'R98', 'SAK', 'SAL', 'SAR', 'SAZ', 'SCA', 'SCO', 'SFL',
+                        'SID', 'SIL', 'SIN', 'SKS', 'SKY', 'SLA', 'SMD', 'SMI', 'SMO', 'SMS',
+                        'SMT', 'SND', 'SNE', 'SNM', 'SNV', 'SNY', 'SOH', 'SOK', 'SOR', 'SPA',
                         'SSD', 'STN', 'STX', 'SUT', 'SVA', 'SWV', 'SWY'
                     ]
+                )),
+
+            # Exports: LNG (ENG) and pipeline (ENP) by border crossing
+            'lng_exports': ClientParams(
+                route='/move/poe2',
+                columns_col='duoarea',
+                frequency='monthly',
+                facets=FacetParams(
+                    process=['ENG'],
+                    duoarea=['NUS-NCA', 'NUS-NMX', 'NUS-Z00'],
+                )),
+
+            'pipeline_exports': ClientParams(
+                route='/move/poe2',
+                columns_col='duoarea',
+                frequency='monthly',
+                facets=FacetParams(
+                    process=['ENP'],
+                    duoarea=['NUS-NCA', 'NUS-NMX', 'NUS-Z00'],
+                )),
+
+            # Combined LNG + pipeline exports
+            'total_exports': ClientParams(
+                route='/move/poe2',
+                columns_col=('process', 'duoarea'),
+                frequency='monthly',
+                facets=FacetParams(
+                    process=['ENG', 'ENP'],
+                    duoarea=['NUS-NCA', 'NUS-NMX', 'NUS-Z00'],
+                )),
+
+            # Imports: pipeline (IRP) and LNG (IML) by border crossing
+            'pipeline_imports': ClientParams(
+                route='/move/poe1',
+                columns_col='duoarea',
+                frequency='monthly',
+                facets=FacetParams(
+                    process=['IRP'],
+                    duoarea=['NUS-NCA', 'NUS-NMX', 'NUS-Z00'],
+                )),
+
+            'lng_imports': ClientParams(
+                route='/move/poe1',
+                columns_col='duoarea',
+                frequency='monthly',
+                facets=FacetParams(
+                    process=['IML'],
+                    duoarea=['NUS-NCA', 'NUS-NMX', 'NUS-Z00'],
+                )),
+
+            # Combined pipeline + LNG imports
+            'total_imports': ClientParams(
+                route='/move/poe1',
+                columns_col=('process', 'duoarea'),
+                frequency='monthly',
+                facets=FacetParams(
+                    process=['IRP', 'IML'],
+                    duoarea=['NUS-NCA', 'NUS-NMX', 'NUS-Z00'],
                 )),
 
         }
@@ -569,7 +631,7 @@ class NatGasHelper:
             "OFF": "Federal Offshore - Gulf of Mexico"
         }
 
-        self.client = EIAClient(os.getenv('EIA_TOKEN')).natural_gas
+        self.client = EIAClient(os.getenv('EIA_TOKEN'), timeout=120).natural_gas
         self.async_client_config = {
             'api_key': os.getenv('EIA_TOKEN'),
             'route': '/natural-gas',
@@ -607,8 +669,9 @@ class NatGasHelper:
         request_params = client_params.request()
         request_params.update(kwargs)  # Override any other parameters
 
-        # Execute the request
-        data = self.client.get_all_data(**request_params)
+        # Execute the request - extract route as positional arg
+        route = request_params.pop('route')
+        data = self.client.get_all_data(route, **request_params)
 
 
         # Clean and return the data using ClientParams.clean()
@@ -655,8 +718,8 @@ class NatGasHelper:
 
             async with self.async_client as client:
                 if hasattr(client, 'get_all_data_async'):
-                    # Pass route as first argument, remaining as kwargs
-                    data = await client.get_all_data_async(**request_params)
+                    route = request_params.pop('route')
+                    data = await client.get_all_data_async(route, **request_params)
                 else:
                     # Fallback to sync method if async not available
                     print(f"Warning: Async client doesn't support get_all_data_async, falling back to sync for {param_key}")
@@ -705,9 +768,10 @@ class NatGasHelper:
         for k, v in regions.items():
             CParams.update_facets('duoarea', v)
             req_params = CParams.request()
+            route = req_params.pop('route')
             async with self.async_client as client:
                 try:
-                    data = await client.get_all_data_async(**req_params)
+                    data = await client.get_all_data_async(route, **req_params)
                     CParams.update_clean(drop_cols=['units'], reset_indexes=False, sum_all_values=sum_totals, **kwargs)
                     dfs[k] = clean_api_data(data, **CParams.clean())
                 except:
@@ -716,6 +780,14 @@ class NatGasHelper:
         master = pd.concat(dfs, axis=1,keys=regions.keys())
 
         return master
+    async def get_spot_prices_async(self, start=None, end=None, max_concurrent=5):
+        return await self.execute_request_async('spot_prices', start=start, end=end, max_concurrent=max_concurrent)
+
+    def get_spot_prices(self, start=None, end=None):
+        data = aio.run(self.execute_request_async('spot_prices', start=start, end=end, max_concurrent=5))
+
+        return data
+
 
     # Async methods for all parameters in self.PARAMS
     async def get_underground_storage_async(self, start=None, end=None, max_concurrent=5):
@@ -740,6 +812,54 @@ class NatGasHelper:
     def get_pct_of_utility(self, start=None, end=None):
         """Get percentage of utility natural gas consumption data."""
         return self.execute_request('pct_of_utility', start, end)
+
+    def get_lng_exports(self, start=None, end=None):
+        """Get US LNG exports by border crossing (Canada/Mexico/Other)."""
+        return self.execute_request('lng_exports', start, end)
+
+    def get_pipeline_exports(self, start=None, end=None):
+        """Get US pipeline natural gas exports by border crossing."""
+        return self.execute_request('pipeline_exports', start, end)
+
+    def get_total_exports(self, start=None, end=None):
+        """Get US natural gas total exports (LNG + pipeline) by process and border crossing."""
+        return self.execute_request('total_exports', start, end)
+
+    def get_pipeline_imports(self, start=None, end=None):
+        """Get US pipeline natural gas imports by border crossing."""
+        return self.execute_request('pipeline_imports', start, end)
+
+    def get_lng_imports(self, start=None, end=None):
+        """Get US LNG imports by border crossing."""
+        return self.execute_request('lng_imports', start, end)
+
+    def get_total_imports(self, start=None, end=None):
+        """Get US natural gas total imports (pipeline + LNG) by process and border crossing."""
+        return self.execute_request('total_imports', start, end)
+
+    async def get_lng_exports_async(self, start=None, end=None, max_concurrent=5):
+        """Get US LNG exports asynchronously."""
+        return await self.execute_request_async('lng_exports', start, end, max_concurrent)
+
+    async def get_pipeline_exports_async(self, start=None, end=None, max_concurrent=5):
+        """Get US pipeline exports asynchronously."""
+        return await self.execute_request_async('pipeline_exports', start, end, max_concurrent)
+
+    async def get_total_exports_async(self, start=None, end=None, max_concurrent=5):
+        """Get US total natural gas exports asynchronously."""
+        return await self.execute_request_async('total_exports', start, end, max_concurrent)
+
+    async def get_pipeline_imports_async(self, start=None, end=None, max_concurrent=5):
+        """Get US pipeline imports asynchronously."""
+        return await self.execute_request_async('pipeline_imports', start, end, max_concurrent)
+
+    async def get_lng_imports_async(self, start=None, end=None, max_concurrent=5):
+        """Get US LNG imports asynchronously."""
+        return await self.execute_request_async('lng_imports', start, end, max_concurrent)
+
+    async def get_total_imports_async(self, start=None, end=None, max_concurrent=5):
+        """Get US total natural gas imports asynchronously."""
+        return await self.execute_request_async('total_imports', start, end, max_concurrent)
 
     async def get_regional_consumption(self):
 
@@ -773,7 +893,7 @@ class NatGasHelper:
         
         return master
 
-    def regional_consumption_sync(self):
+    def regional_consumption_sync(self, start=None, end=None):
         """
         Synchronous version of regional_consumption_breakdown with 2-level MultiIndex.
         """
@@ -783,12 +903,15 @@ class NatGasHelper:
                 region_name = "East"
 
             CParams.update_facets('duoarea', gas_consumers[region_name])
+            if start or end:
+                CParams._add_start_params(start, end)
 
             # Extract route for sync client
             request_params = CParams.request()
-            
+            route = request_params.pop('route')
+
             # Execute sync request
-            data = self.client.get_all_data(**request_params)
+            data = self.client.get_all_data(route, **request_params)
 
             CParams.update_clean(
                 sum_value_totals=True
@@ -957,6 +1080,10 @@ class PetroleumHelper:
                         "MCRIP_R10-NBX_1", "MCRIP_R10-NIZ_1", "MCRIP_R20-NIZ_1",
                         "MCRIP_R30-NIZ_1", "MCRIP_R40-NMX_1", "MCRIP_R40-NSA_1",
                         "MCRIP_R50-NIZ_1"]).params,
+            'spot_prices': FacetParams(duoarea=['RGC', 'YCUOK'],
+                                       product=["EPCWTI","EPD2DXL0","EPJK","EPMRU"],
+                                       process=["PF4"]).params,
+
             'imports_to_padd': FacetParams(
                 duoarea=["R10-NCA", "R10-NBX", "R10-NIZ", "R10-NMX", "R10-Z00", "R20-NCA",
                          "R20-NIZ", "R20-NMX", "R20-NSA", "R20-Z00", "R30-NCA",
@@ -1112,8 +1239,9 @@ class PetroleumHelper:
 
         return clean_api_data(data, columns_col=columns_col, sum_value_totals=sum_values)
 
-    async def execute_request_async(self, route, facet_key,data_columns=None,columns_col="area-name", sum_values=False,
-                                    frequency="monthly", start=None, end=None, max_concurrent=5):
+    async def execute_request_async(self, route: str, facet_key: str, columns_col: str = "area-name", sum_values: bool = False,
+                                    frequency: str = "monthly", start: str = None, end: str = None, max_concurrent: int = 5,
+                                    normalize: bool = True) -> object:
         """
         Async version of execute_request for improved performance
         
@@ -1148,7 +1276,29 @@ class PetroleumHelper:
             )
 
         return clean_api_data(data, columns_col=columns_col, sum_value_totals=sum_values, flatten_columns=False,
-                              reset_index=False)
+                              reset_index=False, normalize_to_bbl=normalize)
+
+
+    def get_spot_prices(self, start=None, end=None):
+        import asyncio as aio
+        data = aio.run(self.execute_request_async('/pri/spt',
+                                                  facet_key='spot_prices',
+                                                  columns_col="product",
+                                                  frequency='daily',
+                                                  start=start,
+                                                  end=end,
+                                                  normalize=False))
+        return data
+
+    async def get_spot_prices_async(self, start=None, end=None):
+        return await self.execute_request_async('/pri/spt',
+                                                  facet_key='spot_prices',
+                                                  columns_col="product",
+                                                  frequency='daily',
+                                                  start=start,
+                                                  end=end,
+                                                  normalize=False)
+
 
     def get_refinery_crude_stocks(self, start=None, end=None):
         if not start:
@@ -1604,7 +1754,6 @@ class PetroleumHelper:
         Returns:
             Combined DataFrame with all PADD import data
         """
-        import asyncio
         if not padd_codes:
             padd_codes = self.agg_level["PADD"]
         # Create request configurations for each PADD
@@ -1701,7 +1850,6 @@ class PetroleumHelper:
         Returns:
             Dictionary with results for each data type
         """
-        import asyncio
 
         if data_types is None:
             data_types = [
@@ -1873,7 +2021,6 @@ class PetroleumHelper:
         Returns:
             DataFrame with MultiIndex columns (destination_padd, source_padd) for movement data
         """
-        import asyncio
 
         # Create request configurations for each destination PADD
         requests_config = []

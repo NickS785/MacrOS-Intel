@@ -5,14 +5,13 @@ import pandas as pd
 import toml
 from enum import Enum
 import asyncio
-from typing import List, Dict, Optional, Tuple
-import h5py
+from typing import List, Dict, Optional, Tuple, Union
 
 # Google Drive integration removed
 
 # Import from config instead of using dotenv directly
 try:
-    from config import (
+    from MacrOSINT.config import (
         DATA_PATH, MARKET_DATA_PATH, COT_PATH,
         NASS_TOKEN, FAS_TOKEN, EIA_KEY,
         load_mapping, PROJECT_ROOT
@@ -31,7 +30,7 @@ except ImportError:
 # Import external APIs
 try:
     from myeia import API
-    from data.sources.usda.api_wrappers.usda_quickstats import QuickStatsClient
+    from MacrOSINT.data.sources.usda.api_wrappers.usda_quickstats import QuickStatsClient
     from CTAFlow.data import DataClient
 except ImportError as e:
     print(f"Warning: Could not import external APIs: {e}")
@@ -41,14 +40,14 @@ except ImportError as e:
 # Import local modules with proper paths
 try:
     # Update import paths to match your structure
-    from data.sources.usda.nass_utils import calc_dates, clean_numeric_column as clean_col, clean_fas
-    from data.sources.usda.api_wrappers.psd_api import PSD_API, CommodityCode, CountryCode, AttributeCode, comms_dict, \
+    from MacrOSINT.data.sources.usda.nass_utils import calc_dates, clean_numeric_column as clean_col, clean_fas
+    from MacrOSINT.data.sources.usda.api_wrappers.psd_api import PSD_API, CommodityCode, CountryCode, AttributeCode, comms_dict, \
         rev_lookup, valid_codes, code_lookup
-    from data.sources.usda.api_wrappers.esr_api import USDAESR
-    from data.sources.usda.api_wrappers.esr_staging_api import USDAESRStaging
-    from data.sources.usda.esr_csv_processor import ESRCSVProcessor, process_esr_csv
-    from data.sources.eia.EIA_API import EIAClient, PetroleumClient, NaturalGasClient, EIAAPIError
-    from data.sources.eia.api_tools import NatGasHelper as NGHelper, aggregate_regions, CENSUS_REGIONS, \
+    from MacrOSINT.data.sources.usda.api_wrappers.esr_api import USDAESR
+    from MacrOSINT.data.sources.usda.api_wrappers.esr_staging_api import USDAESRStaging
+    from MacrOSINT.data.sources.usda.esr_csv_processor import ESRCSVProcessor, process_esr_csv
+    from MacrOSINT.data.sources.eia.EIA_API import EIAClient, PetroleumClient, NaturalGasClient, EIAAPIError
+    from MacrOSINT.data.sources.eia.api_tools import NatGasHelper as NGHelper, aggregate_regions, CENSUS_REGIONS, \
         PetroleumHelper as PHelper
 
 except ImportError as e:
@@ -65,7 +64,7 @@ except ImportError as e:
 
 # Import utilities
 try:
-    from utils.data_tools import walk_dict, key_to_name, convert_to_long
+    from MacrOSINT.utils.data_tools import walk_dict, key_to_name, convert_to_long
 
 except ImportError:
     # Provide simple fallback implementations
@@ -451,115 +450,186 @@ class TableClient:
 
 
 class MarketTable(DataClient):
+
     """Data access layer for market and COT data from HDF5 files."""
 
-    def __init__(self, alias_file=None, initial_ticker=None, start_date=None, end_date=None, freq='1D'):
-        self.table_db = MARKET_DATA_PATH if MARKET_DATA_PATH.is_file() else MARKET_DATA_PATH / 'market_data.hd5'
-        self.cot_table_db = Path(COT_PATH)
-        self.ohlc_agg = {
-            'Open': 'first',
-            'High': 'max',
-            'Low': 'min',
-            'Close': 'last',
-            'Volume': 'sum'
-        }
+    def __init__(self):
+        super().__init__()
 
-        # Load ticker mappings
-        if not alias_file:
-            alias_file = PROJECT_ROOT / 'components' / 'plotting' / 'chart_mappings.toml'
+        return
 
-        try:
-            if Path(alias_file).exists():
-                with open(alias_file, 'r') as f:
-                    self.ticker_map = toml.load(f)
-            else:
-                print(f"Warning: Alias file {alias_file} not found.")
-                self.ticker_map = {}
-        except Exception as e:
-            print(f"Error loading alias file: {e}")
-            self.ticker_map = {}
-
-    def get_historical(self, ticker, start_date='2015-01-01', end_date=None, resample=False, interval='1D'):
+    def get_historical(self, ticker:Union[str,List], start_date='2015-01-01', end_date=None, resample_period:str=None, combine_datasets=False):
         """Get market data for a ticker."""
-        try:
-            if not self.table_db.exists():
-                print(f"Market data file not found: {self.table_db}")
-                return None
+        daily = True if (resample_period.upper().endswith("D") or resample_period.upper().endswith("W")) else False
+        historical_data = self.query_market_data(tickers=ticker, daily=daily, resample=resample_period, combine_datasets=combine_datasets)
+        return historical_data
 
-            with pd.HDFStore(self.table_db, mode='r') as store:
-                if ticker in self.ticker_map:
-                    key = self.ticker_map[ticker].get('market_ticker', ticker)
-                else:
-                    key = ticker
-
-                if key in store:
-                    data = store[key]
-                elif f'/{key}' in store:
-                    data = store[f'/{key}']
-                else:
-                    print(f'Ticker {ticker} not found. Available: {list(store.keys())}')
-                    return None
-
-            # Process data
-            if not isinstance(data.index, pd.DatetimeIndex):
-                data.index = pd.to_datetime(data.index)
-
-            # Apply date filtering
-            if start_date:
-                data = data[data.index >= pd.to_datetime(start_date)]
-            if end_date:
-                data = data[data.index <= pd.to_datetime(end_date)]
-
-            # Resample if requested
-            if resample and interval:
-                data = data.resample(interval).agg(self.ohlc_agg)
-
-            return data
-
-        except Exception as e:
-            print(f"Error accessing market data: {e}")
-            return None
-
-    def get_cot(self, commodity, filter_by_type='F_ALL', start_date=None, end_date=None):
+    def get_cot(self, commodity_symbol, type='metrics', start_date=None, end_date=None):
         """Get COT data for a commodity."""
         try:
-            if not self.cot_table_db.exists():
-                print(f"COT data file not found: {self.cot_table_db}")
-                return None
-
-            with pd.HDFStore(self.cot_table_db, mode='r') as store:
-                if commodity in self.ticker_map:
-                    key = self.ticker_map[commodity].get('cot_name', commodity)
-                else:
-                    key = commodity
-
-                if key in store:
-                    data = store[key]
-                elif f'/{key}' in store:
-                    data = store[f'/{key}']
-                else:
-                    print(f'Commodity {commodity} not found. Available: {list(store.keys())}')
-                    return None
-
-            # Process COT data
-            if 'date' in data.columns:
-                data['Date'] = pd.to_datetime(data['date'])
-
-            if 'key_type' in data.columns:
-                data = data[data['key_type'] == filter_by_type]
-
-            data = data.sort_values(by='Date' if 'Date' in data.columns else data.index)
-
-            # Apply date filtering
-            if start_date:
-                data = data[data['Date'] >= pd.to_datetime(start_date)]
-            if end_date:
-                data = data[data['Date'] <= pd.to_datetime(end_date)]
-
-            return data
+            if type == 'metrics':
+                metrics = self.query_cot_metrics(commodity_symbol, start_date=start_date, end_date=end_date)
+                return metrics
+            elif type == 'raw' or type == 'cot':
+                raw_metrics = self.query_by_ticker(commodity_symbol, start_date=start_date, end_date=end_date)
+                return raw_metrics
 
         except Exception as e:
             print(f"Error accessing COT data: {e}")
+            return None
+
+    def write_spot_data(self, symbol:str=None):
+        if symbol.startswith("NG"):
+            helper = NGHelper()
+            is_petrol = False
+        elif symbol[:2] in ["HO", "CL", "RB"]:
+            helper = PHelper()
+            is_petrol = True
+        else:
+            is_petrol = False
+            raise ValueError("Unknown Symbol")
+
+        data = helper.get_spot_prices()
+        data = data.select_dtypes('float')
+
+        if is_petrol:
+            mapping = {"HO_F": ["EPD2DXL0", "EPJK"],
+                       "RB_F": "EPMRU",
+                       "CL_F": "EPCWTI"}
+
+            for symbol_key, value in mapping.items():
+                update_data = data[value]
+                if isinstance(update_data, pd.Series):
+                    update_data = update_data.to_frame(symbol_key)
+                hdf_key = f"market/{symbol_key}/spot"
+                self.write_market(update_data, hdf_key)
+                print(f"Successful write to {hdf_key}")
+
+        else:
+            if (len(symbol) != 4) or not symbol.endswith('_F'):
+                symbol_key = f"{symbol[:2]}_F"
+            else:
+                symbol_key = symbol
+            if "units" in data.columns:
+                data.drop(columns=["units"], inplace=True)
+
+            hdf_key = f"market/{symbol_key}/spot"
+            if isinstance(data, pd.Series):
+                update_data = data.to_frame(symbol_key)
+            else:
+                update_data = data
+
+            self.write_market(update_data, hdf_key)
+            print(f"Successful write to {hdf_key}")
+
+        return True
+
+
+    def get_market_data(self, tickers, start_date=None, end_date=None, columns=None, 
+                       resample=None, where=None, combine_datasets=False, daily=False):
+        """
+        Wrapper for query_market_data following TableClient methodology.
+        
+        Args:
+            tickers: Ticker symbol(s) to query
+            start_date: Start date filter in 'YYYY-MM-DD' format
+            end_date: End date filter in 'YYYY-MM-DD' format  
+            columns: Specific columns to return
+            resample: Pandas resampling frequency
+            where: Custom HDFStore where clause
+            combine_datasets: If True, combines multiple tickers into single DataFrame
+            daily: If True, queries daily resampled data
+            
+        Returns:
+            DataFrame or dict of DataFrames with market data
+        """
+        try:
+            return self.query_market_data(
+                tickers=tickers,
+                start_date=start_date,
+                end_date=end_date,
+                columns=columns,
+                resample=resample,
+                where=where,
+                combine_datasets=combine_datasets,
+                daily=daily
+            )
+        except Exception as e:
+            print(f"Error accessing market data for {tickers}: {e}")
+            return None
+
+    def get_curve_data(self, symbol, curve_types=None, start_date=None, end_date=None,
+                      columns=None, where=None, combine_datasets=False):
+        """
+        Wrapper for query_curve_data following TableClient methodology.
+        
+        Args:
+            symbol: Base symbol (e.g., 'CL', 'ZC') 
+            curve_types: Curve data types to query ('curve', 'volume_curve', 'oi_curve', etc.)
+            start_date: Start date filter in 'YYYY-MM-DD' format
+            end_date: End date filter in 'YYYY-MM-DD' format
+            columns: Specific columns to return
+            where: Custom HDFStore where clause
+            combine_datasets: If True, combine all curve types into single DataFrame
+            
+        Returns:
+            DataFrame or dict of DataFrames with curve data
+        """
+        try:
+            return self.query_curve_data(
+                symbol=symbol,
+                curve_types=curve_types,
+                start_date=start_date,
+                end_date=end_date,
+                columns=columns,
+                where=where,
+                combine_datasets=combine_datasets
+            )
+        except Exception as e:
+            print(f"Error accessing curve data for {symbol}: {e}")
+            return None
+
+    def get_cot_by_ticker(self, tickers, **kwargs):
+        """
+        Wrapper for query_by_ticker following TableClient methodology.
+        
+        Args:
+            tickers: Ticker symbol(s) to query
+            **kwargs: Additional arguments passed to query_by_ticker
+            
+        Returns:
+            DataFrame with COT data
+        """
+        try:
+            return self.query_by_ticker(tickers, **kwargs)
+        except Exception as e:
+            print(f"Error accessing COT data by ticker {tickers}: {e}")
+            return None
+
+    def get_cot_metrics(self, ticker_symbol, columns=None, start_date=None, end_date=None, where=None):
+        """
+        Wrapper for query_cot_metrics following TableClient methodology.
+        
+        Args:
+            ticker_symbol: The ticker symbol (e.g., 'ZC_F', 'CL_F')
+            columns: Specific columns to retrieve
+            start_date: Start date filter (YYYY-MM-DD format)
+            end_date: End date filter (YYYY-MM-DD format)
+            where: Additional where clause for filtering
+            
+        Returns:
+            DataFrame with calculated COT metrics
+        """
+        try:
+            return self.query_cot_metrics(
+                ticker_symbol=ticker_symbol,
+                columns=columns,
+                start_date=start_date,
+                end_date=end_date,
+                where=where
+            )
+        except Exception as e:
+            print(f"Error accessing COT metrics for {ticker_symbol}: {e}")
             return None
 
 
@@ -2426,7 +2496,7 @@ class ESRTableClient(FASTable):
             Dict with analysis results including 'data' key with processed DataFrame
         """
         try:
-            from models.agricultural.agricultural_analytics import ESRAnalyzer
+            from MacrOSINT.models.agricultural.agricultural_analytics import ESRAnalyzer
 
             # Get multi-year data
             data = self.get_multi_year_esr_data(commodity, start_year=start_year, end_year=end_year)
@@ -2478,7 +2548,7 @@ class ESRTableClient(FASTable):
             Dict with seasonal analysis results including processed data
         """
         try:
-            from models.agricultural.agricultural_analytics import ESRAnalyzer
+            from MacrOSINT.models.agricultural.agricultural_analytics import ESRAnalyzer
 
             # Get multi-year data
             data = self.get_multi_year_esr_data(commodity, start_year=start_year, end_year=end_year)

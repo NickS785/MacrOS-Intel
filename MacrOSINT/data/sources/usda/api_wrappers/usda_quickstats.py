@@ -33,13 +33,12 @@ from __future__ import annotations
 
 import os
 import time
-import math
 import logging
 import asyncio
 import aiohttp
-from typing import Dict, Any, List, Optional, Iterable, Union, Tuple
+from typing import Dict, Any, List, Optional, Iterable, Union
 import requests
-import config
+from MacrOSINT import config
 from dotenv import load_dotenv
 
 try:

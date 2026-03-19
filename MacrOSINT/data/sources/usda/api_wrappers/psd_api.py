@@ -10,12 +10,12 @@ Date: July 2025
 import requests
 import pandas as pd
 from typing import List, Optional, Dict, Union
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
 from enum import Enum
 import logging
 import json
 from datetime import datetime
-from data.sources.usda.nass_utils import clean_grains, clean_livestock
+from MacrOSINT.data.sources.usda.nass_utils import clean_grains, clean_livestock
 
 
 class CommodityCode(Enum):

@@ -1,54 +1,67 @@
 #!/usr/bin/env python3
-"""Project setup utility.
-
-Installs dependencies, configures paths and downloads required data files."""
-import subprocess
-import sys
+"""Setup script for MacrOSINT package."""
+from setuptools import setup, find_packages
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent
-ENV_FILE = PROJECT_ROOT / ".env"
+# Read the contents of README file
+this_directory = Path(__file__).parent
+long_description = (this_directory / "README.md").read_text() if (this_directory / "README.md").exists() else ""
 
+# Read requirements
+requirements = []
+requirements_file = this_directory / "requirements.txt"
+if requirements_file.exists():
+    with open(requirements_file) as f:
+        requirements = [line.strip() for line in f if line.strip() and not line.startswith('#')]
 
-def install_dependencies() -> None:
-    """Install Python packages from requirements and gdown for downloads."""
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "gdown"])
-
-
-def setup_paths() -> None:
-    """Create data directories and write path variables to .env."""
-    data_dir = PROJECT_ROOT / "data"
-    market_dir = data_dir / "market"
-    cot_dir = data_dir / "cot"
-
-    data_dir.mkdir(parents=True, exist_ok=True)
-    market_dir.mkdir(parents=True, exist_ok=True)
-    cot_dir.mkdir(parents=True, exist_ok=True)
-
-    env_lines = [
-        f"data_path={data_dir}",
-        f"market_data_path={market_dir}",
-        f"cot_path={cot_dir}",
-        f"APP_PATH={PROJECT_ROOT}",
-    ]
-    ENV_FILE.write_text("\n".join(env_lines) + "\n")
-
-
-def download_h5() -> None:
-    """Download .h5 files from the project Drive folder into the data path."""
-    import gdown
-
-    url = "https://drive.google.com/drive/folders/1PM5dv-Acy7fgVPLQvOsmDxcRis7somiC?usp=drive_link"
-    output = PROJECT_ROOT / "data"
-    gdown.download_folder(url, output=str(output), quiet=False, use_cookies=False)
-
-
-def main() -> None:
-    install_dependencies()
-    setup_paths()
-    download_h5()
-
-
-if __name__ == "__main__":
-    main()
+setup(
+    name="MacrOSINT",
+    version="0.1.0",
+    author="Your Name",
+    author_email="your.email@example.com",
+    description="Commodities Dashboard - Multi-page Dash application for analyzing agricultural and energy commodity data",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+    url="https://github.com/yourusername/macrOS-Int",
+    packages=find_packages(include=['MacrOSINT', 'MacrOSINT.*']),
+    classifiers=[
+        "Development Status :: 3 - Alpha",
+        "Intended Audience :: Developers",
+        "Intended Audience :: Financial and Insurance Industry",
+        "Topic :: Office/Business :: Financial",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
+    ],
+    python_requires=">=3.9",
+    install_requires=requirements,
+    extras_require={
+        'dev': [
+            'pytest>=7.0.0',
+            'pytest-asyncio>=0.21.0',
+            'black>=23.0.0',
+            'flake8>=6.0.0',
+        ],
+        'download': [
+            'gdown>=4.7.0',
+        ],
+    },
+    entry_points={
+        'console_scripts': [
+            'macrosint-setup=MacrOSINT.setup_utils:main',
+        ],
+    },
+    include_package_data=True,
+    package_data={
+        'MacrOSINT': [
+            '*.toml',
+            'data/sources/*/*.toml',
+            'components/plotting/*.toml',
+            'assets/*',
+        ],
+    },
+    zip_safe=False,
+)

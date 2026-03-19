@@ -1,0 +1,98 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "MacrOSINT"
+version = "0.1.0"
+description = "Commodities Dashboard - Multi-page Dash application for analyzing agricultural and energy commodity data"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+keywords = ["commodities", "dashboard", "agriculture", "energy", "data-analysis", "dash"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Topic :: Office/Business :: Financial",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "dash>=2.14.0",
+    "dash-bootstrap-components>=1.5.0",
+    "plotly>=5.18.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "tables>=3.8.0",
+    "requests>=2.31.0",
+    "python-dotenv>=1.0.0",
+    "toml>=0.10.2",
+    "statsmodels>=0.14.0",
+    "scipy>=1.10.0",
+    "scikit-learn>=1.3.0",
+    "openpyxl>=3.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+]
+download = [
+    "gdown>=4.7.0",
+]
+
+[project.scripts]
+macrosint-setup = "MacrOSINT.setup_utils:main"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/macrOS-Int"
+Repository = "https://github.com/yourusername/macrOS-Int"
+Issues = "https://github.com/yourusername/macrOS-Int/issues"
+
+[tool.setuptools]
+packages = ["MacrOSINT"]
+
+[tool.setuptools.package-data]
+MacrOSINT = [
+    "*.toml",
+    "data/sources/*/*.toml",
+    "components/plotting/*.toml",
+    "assets/*",
+]
+
+[tool.black]
+line-length = 120
+target-version = ['py39', 'py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"

@@ -3,7 +3,7 @@
 # Fixed layout - ensure component IDs match callback expectations
 
 from datetime import date
-from data.data_tables import FASTable
+from MacrOSINT.data.data_tables import FASTable
 from MacrOSINT.components import create_dd_menu
 from MacrOSINT.components import FundamentalFrame as FFrame, FrameGrid
 import pandas as pd
@@ -15,7 +15,7 @@ import plotly.express as px
 def import_export_layout(data_type: str = "imports", data_source=None):
     """Generate layout for different data types (imports/exports)"""
 
-    from data.data_tables import FASTable
+    from MacrOSINT.data.data_tables import FASTable
     table_client = FASTable()
 
     # Get initial data and available commodities
@@ -230,7 +230,7 @@ def create_esr_menu(table_client=None):
 
     # Initialize FASTable if no table_client provided
     if table_client is None:
-        from data.data_tables import FASTable
+        from MacrOSINT.data.data_tables import FASTable
         table_client = FASTable()
 
     menu = FlexibleMenu('esr_menu', position='right', width='350px', title='ESR Controls')

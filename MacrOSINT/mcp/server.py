@@ -1,12 +1,15 @@
 """
 MCP Server for MacrOS-Intel EIA Data
-Exposes NatGasHelper and PetroleumHelper as MCP tools.
+Exposes NatGasHelper, PetroleumHelper, and NatGasStorageForecaster as MCP tools.
 """
 from mcp.server.fastmcp import FastMCP
 from typing import Literal, Optional
 
 from MacrOSINT.data.sources.eia.api_tools import (
     NatGasHelper, PetroleumHelper, gas_consumers, states_plus_usa, clean_api_data,
+)
+from MacrOSINT.models.energy.natgas_storage_forecast import (
+    NatGasStorageForecaster, ConsensusForecast,
 )
 from MacrOSINT.mcp.serializers import format_df_for_llm
 
@@ -28,6 +31,12 @@ NatGasParamKey = Literal[
     "consolidated_consumption",
     "production",
     "state_production_detailed",
+    "lng_exports",
+    "pipeline_exports",
+    "total_exports",
+    "pipeline_imports",
+    "lng_imports",
+    "total_imports",
 ]
 
 PetroleumFacetKey = Literal[
@@ -534,6 +543,407 @@ def fetch_tank_farm_stocks(
         return format_df_for_llm(df, max_rows=max_rows)
     except Exception as e:
         return f"Error fetching tank farm stocks: {e}"
+
+
+# ===================================================================
+# Natural Gas Trade Flow Tools (Exports / Imports)
+# ===================================================================
+
+@mcp_server.tool()
+def fetch_natgas_lng_exports(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    max_rows: int = 150,
+    summarize: bool = False,
+) -> str:
+    """
+    Fetch US LNG exports by border crossing (Canada, Mexico, Other).
+
+    Data source: EIA /move/poe2, process=ENG (LNG exports).
+    Columns represent destination area codes:
+        NUS-NCA = exports to Canada
+        NUS-NMX = exports to Mexico
+        NUS-Z00 = exports to other destinations (all others incl. overseas LNG)
+
+    This is the primary series capturing feedgas deliveries to LNG terminals
+    (Sabine Pass, Corpus Christi, Freeport, Cameron, etc.).
+
+    Args:
+        start: Start date YYYY-MM (default: full history)
+        end: End date YYYY-MM
+        max_rows: Maximum rows to return
+        summarize: If True, return statistical summary
+    """
+    try:
+        df = ng_helper.get_lng_exports(start=start, end=end)
+        return format_df_for_llm(df, max_rows=max_rows, summarize=summarize)
+    except Exception as e:
+        return f"Error fetching LNG exports: {e}"
+
+
+@mcp_server.tool()
+def fetch_natgas_pipeline_exports(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    max_rows: int = 150,
+    summarize: bool = False,
+) -> str:
+    """
+    Fetch US natural gas pipeline exports by border crossing (Canada, Mexico).
+
+    Data source: EIA /move/poe2, process=ENP (pipeline exports).
+    Columns represent destination:
+        NUS-NCA = pipeline exports to Canada
+        NUS-NMX = pipeline exports to Mexico
+        NUS-Z00 = other pipeline destinations
+
+    Args:
+        start: Start date YYYY-MM
+        end: End date YYYY-MM
+        max_rows: Maximum rows to return
+        summarize: If True, return statistical summary
+    """
+    try:
+        df = ng_helper.get_pipeline_exports(start=start, end=end)
+        return format_df_for_llm(df, max_rows=max_rows, summarize=summarize)
+    except Exception as e:
+        return f"Error fetching pipeline exports: {e}"
+
+
+@mcp_server.tool()
+def fetch_natgas_total_exports(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    max_rows: int = 150,
+    summarize: bool = False,
+) -> str:
+    """
+    Fetch US natural gas total exports (LNG + pipeline) broken out by process
+    and border crossing. Multi-level columns: (process, duoarea).
+
+    Processes: ENG=LNG, ENP=pipeline.
+    Duoareas: NUS-NCA (Canada), NUS-NMX (Mexico), NUS-Z00 (other).
+
+    Args:
+        start: Start date YYYY-MM
+        end: End date YYYY-MM
+        max_rows: Maximum rows to return
+        summarize: If True, return statistical summary
+    """
+    try:
+        df = ng_helper.get_total_exports(start=start, end=end)
+        return format_df_for_llm(df, max_rows=max_rows, summarize=summarize)
+    except Exception as e:
+        return f"Error fetching total natural gas exports: {e}"
+
+
+@mcp_server.tool()
+def fetch_natgas_pipeline_imports(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    max_rows: int = 150,
+    summarize: bool = False,
+) -> str:
+    """
+    Fetch US natural gas pipeline imports by border crossing (Canada, Mexico).
+
+    Data source: EIA /move/poe1, process=IRP (pipeline imports).
+    Canada imports (NUS-NCA) dominate US pipeline supply.
+
+    Args:
+        start: Start date YYYY-MM
+        end: End date YYYY-MM
+        max_rows: Maximum rows to return
+        summarize: If True, return statistical summary
+    """
+    try:
+        df = ng_helper.get_pipeline_imports(start=start, end=end)
+        return format_df_for_llm(df, max_rows=max_rows, summarize=summarize)
+    except Exception as e:
+        return f"Error fetching pipeline imports: {e}"
+
+
+@mcp_server.tool()
+def fetch_natgas_lng_imports(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    max_rows: int = 150,
+    summarize: bool = False,
+) -> str:
+    """
+    Fetch US LNG imports by border crossing.
+
+    Data source: EIA /move/poe1, process=IML (LNG imports).
+    US LNG imports have declined sharply since domestic shale production
+    ramped up in the 2010s and the US became a net exporter.
+
+    Args:
+        start: Start date YYYY-MM
+        end: End date YYYY-MM
+        max_rows: Maximum rows to return
+        summarize: If True, return statistical summary
+    """
+    try:
+        df = ng_helper.get_lng_imports(start=start, end=end)
+        return format_df_for_llm(df, max_rows=max_rows, summarize=summarize)
+    except Exception as e:
+        return f"Error fetching LNG imports: {e}"
+
+
+@mcp_server.tool()
+def fetch_natgas_total_imports(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    max_rows: int = 150,
+    summarize: bool = False,
+) -> str:
+    """
+    Fetch US natural gas total imports (pipeline + LNG) broken out by process
+    and border crossing. Multi-level columns: (process, duoarea).
+
+    Processes: IRP=pipeline, IML=LNG.
+    Duoareas: NUS-NCA (Canada), NUS-NMX (Mexico), NUS-Z00 (other).
+
+    Args:
+        start: Start date YYYY-MM
+        end: End date YYYY-MM
+        max_rows: Maximum rows to return
+        summarize: If True, return statistical summary
+    """
+    try:
+        df = ng_helper.get_total_imports(start=start, end=end)
+        return format_df_for_llm(df, max_rows=max_rows, summarize=summarize)
+    except Exception as e:
+        return f"Error fetching total natural gas imports: {e}"
+
+
+# ===================================================================
+# Natural Gas Storage Forecast Tools
+# ===================================================================
+
+_forecaster_cache: Optional[NatGasStorageForecaster] = None
+_consensus_cache: Optional[ConsensusForecast] = None
+
+
+def _get_forecaster() -> NatGasStorageForecaster:
+    """Return cached forecaster or raise with a helpful message."""
+    if _forecaster_cache is None:
+        raise RuntimeError(
+            "Forecaster not initialized. Call fit_storage_forecast first."
+        )
+    return _forecaster_cache
+
+
+@mcp_server.tool()
+def fit_storage_forecast(
+    weather_config_path: str = "pop_weather_config.json",
+    weather_hdf_path: str = r"F:\Data\weather.hdf",
+    is_start: str = "2011-01",
+    is_end: str = "2024-01",
+    full_end: str = "2026-03",
+) -> str:
+    """
+    Fit the NatGas storage SARIMAX model on historical data.
+
+    Loads population-weighted weather from HDF5 cache, fetches EIA storage
+    and spot price data, builds the feature matrix (spline HDD, Fourier terms,
+    storage deficit), and fits SARIMAX(1,1,1)(1,0,1,52).
+
+    This tool takes several minutes to run. Once fitted, other forecast tools
+    become available without re-fitting.
+
+    Args:
+        weather_config_path: Path to PopulationWeatherGrid config JSON
+        weather_hdf_path: Path to cached weather HDF5 file
+        is_start: In-sample start date YYYY-MM
+        is_end: In-sample cutoff date YYYY-MM
+        full_end: End of full data range YYYY-MM (for OOS features)
+
+    Returns:
+        Model summary with AIC, BIC, in-sample RMSE, MAE, correlation.
+    """
+    import numpy as np
+    from pathlib import Path
+    from MacrOSINT.models.weather.population_weather import PopulationWeatherGrid
+
+    global _forecaster_cache, _consensus_cache
+
+    try:
+        # Load weather grid
+        grid = PopulationWeatherGrid.from_config(weather_config_path)
+
+        # Load cached weather
+        daily = NatGasStorageForecaster.load_weather_hdf(weather_hdf_path)
+        if daily is None or daily.empty:
+            return f"No cached weather found at {weather_hdf_path}. Run test_natgas_forecast.py first."
+
+        forecaster = NatGasStorageForecaster(
+            weather_grid=grid,
+            ng_helper=ng_helper,
+            use_price=True,
+        )
+
+        # Build full feature set then split IS
+        full_features = forecaster.build_features(is_start, full_end, daily_weather=daily)
+        import pandas as pd
+        is_data = full_features[full_features.index < pd.Timestamp(is_end)]
+
+        forecaster.fit(data=is_data)
+
+        # IS diagnostics
+        insample = forecaster.insample_fit()
+        rmse = float(np.sqrt((insample["residual"] ** 2).mean()))
+        mae = float(insample["residual"].abs().mean())
+        corr = float(insample["actual"].corr(insample["fitted"]))
+
+        # Fit consensus forecast
+        consensus = ConsensusForecast()
+        consensus.fit(is_data["storage_change"])
+
+        _forecaster_cache = forecaster
+        _consensus_cache = consensus
+
+        lines = [
+            "Storage forecast model fitted successfully.",
+            f"  Model:            SARIMAX{forecaster.order}{forecaster.seasonal_order}",
+            f"  Exog columns:     {forecaster._exog_cols}",
+            f"  Training period:  {is_data.index[0].date()} to {is_data.index[-1].date()} ({len(is_data)} weeks)",
+            f"  AIC: {forecaster.aic:.1f}  BIC: {forecaster.bic:.1f}",
+            f"  In-sample RMSE:   {rmse:.1f} Bcf",
+            f"  In-sample MAE:    {mae:.1f} Bcf",
+            f"  In-sample corr:   {corr:.4f}",
+            "  ConsensusForecast fitted (5yr seasonal range weights).",
+        ]
+        return "\n".join(lines)
+
+    except Exception as e:
+        return f"Error fitting storage forecast: {e}"
+
+
+@mcp_server.tool()
+def get_storage_forecast(
+    steps: int = 4,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+) -> str:
+    """
+    Generate weekly natural gas storage change forecasts.
+
+    Requires fit_storage_forecast to have been called first.
+    Fetches fresh weather and EIA data for the forecast horizon,
+    then returns SARIMAX point forecasts with 95% confidence intervals.
+
+    Args:
+        steps: Number of weeks ahead to forecast (default 4)
+        start: Forecast start date YYYY-MM (default: day after last training obs)
+        end: Forecast end date YYYY-MM (used to infer steps if provided)
+
+    Returns:
+        Table of forecast, lower_ci, upper_ci for each week.
+    """
+    try:
+        forecaster = _get_forecaster()
+
+        last_date = forecaster._training_data.index[-1]
+        fcast_start = start or (last_date + __import__('pandas').Timedelta(weeks=1)).strftime("%Y-%m")
+        fcast_end = end or (last_date + __import__('pandas').Timedelta(weeks=steps)).strftime("%Y-%m")
+
+        # Build future features using cached weather
+        daily = NatGasStorageForecaster.load_weather_hdf()
+        future_feats = forecaster.build_features(fcast_start, fcast_end, daily_weather=daily)
+
+        if future_feats.empty:
+            return f"No features built for {fcast_start} to {fcast_end}. Check weather cache coverage."
+
+        fc = forecaster.forecast(steps=len(future_feats), future_exog=future_feats)
+        return format_df_for_llm(fc, max_rows=steps + 5)
+
+    except Exception as e:
+        return f"Error generating storage forecast: {e}"
+
+
+@mcp_server.tool()
+def get_storage_consensus_estimate(
+    target_date: str,
+) -> str:
+    """
+    Get the ConsensusForecast (street estimate proxy) for a specific week.
+
+    The consensus estimate blends 5-year rolling seasonal statistics using
+    weights optimized against M0-M1 spread reaction:
+        5yr Max:    62%
+        5yr Mean:   28%
+        5yr Median: 10%
+
+    Market participants price EIA storage reports relative to the seasonal
+    range, not model forecasts — this estimate proxies the street expectation.
+
+    Requires fit_storage_forecast to have been called first.
+
+    Args:
+        target_date: Week-ending date (Friday) in YYYY-MM-DD format
+
+    Returns:
+        Consensus estimate (Bcf), seasonal stats, and implied surprise
+        vs the most recent actual if available.
+    """
+    try:
+        if _consensus_cache is None:
+            return "ConsensusForecast not initialized. Call fit_storage_forecast first."
+
+        import pandas as pd
+        ts = pd.Timestamp(target_date)
+        est = _consensus_cache.estimate(ts)
+        if est is None:
+            return f"Insufficient history for week ending {target_date} (need {_consensus_cache.min_obs}+ same-week-of-year observations)."
+
+        week = int(ts.isocalendar().week)
+        stats = _consensus_cache._seasonal_stats(ts, week)
+        lines = [
+            f"Consensus estimate for week ending {target_date}:",
+            f"  Estimate:   {est:+.1f} Bcf",
+            f"  5yr Mean:   {stats['sea_mean']:+.1f} Bcf",
+            f"  5yr Median: {stats['sea_med']:+.1f} Bcf",
+            f"  5yr Min:    {stats['sea_min']:+.1f} Bcf",
+            f"  5yr Max:    {stats['sea_max']:+.1f} Bcf",
+            f"  Obs used:   {stats['n_obs']}",
+        ]
+        return "\n".join(lines)
+
+    except Exception as e:
+        return f"Error computing consensus estimate: {e}"
+
+
+@mcp_server.tool()
+def get_storage_model_status() -> str:
+    """
+    Report the current state of the storage forecast model.
+
+    Returns model configuration, training period, key metrics if fitted,
+    or instructions to fit the model if not yet initialized.
+    """
+    if _forecaster_cache is None:
+        return (
+            "Storage forecast model not fitted.\n"
+            "Call fit_storage_forecast() to initialize.\n"
+            "Expected runtime: ~5 minutes (SARIMAX optimization)."
+        )
+
+    f = _forecaster_cache
+    last_date = f._training_data.index[-1].date()
+    n_weeks = len(f._training_data)
+    lines = [
+        "Storage forecast model status: FITTED",
+        f"  Model:           SARIMAX{f.order}{f.seasonal_order}",
+        f"  Training end:    {last_date} ({n_weeks} weeks)",
+        f"  Exog features:   {f._exog_cols}",
+        f"  Spline HDD:      {f.use_spline_hdd} (knots={f.n_spline_knots})",
+        f"  Fourier terms:   {f.use_fourier} (harmonics={f.n_fourier_harmonics})",
+        f"  Storage deficit: {f.use_storage_norm}",
+        f"  Residual corr:   {'fitted' if f._residual_model else 'not fitted'}",
+        f"  Consensus:       {'fitted' if _consensus_cache else 'not fitted'}",
+    ]
+    return "\n".join(lines)
 
 
 # ===================================================================

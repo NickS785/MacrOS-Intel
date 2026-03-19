@@ -7,8 +7,7 @@ Components for manually updating TableClients in the data.data_tables module.
 import dash
 from dash import html, dcc, Input, Output, State, callback
 import dash_bootstrap_components as dbc
-from data.data_tables import NASSTable, ESRTableClient, FASTable
-import pandas as pd
+from MacrOSINT.data.data_tables import NASSTable, ESRTableClient, FASTable
 import datetime
 
 

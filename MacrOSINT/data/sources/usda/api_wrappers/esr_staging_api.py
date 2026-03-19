@@ -12,15 +12,11 @@ Requirements: requests, pandas, aiohttp
 
 import requests
 import pandas as pd
-from datetime import datetime, date, timedelta
-from typing import Optional, Union, List, Dict, Any
-import json
+from datetime import datetime, timedelta
+from typing import Optional, List, Dict, Any
 import os
 from pathlib import Path
-import config
-import asyncio
-import aiohttp
-from concurrent.futures import ThreadPoolExecutor
+from MacrOSINT import config
 import toml
 from io import StringIO
 

@@ -7,12 +7,9 @@ with automatic pagination support for large datasets
 import requests
 import aiohttp
 import asyncio
-from config import EIA_KEY, DOT_ENV
+from MacrOSINT.config import EIA_KEY, DOT_ENV
 from dotenv import load_dotenv
-from typing import Dict, List, Optional, Union, Any, Generator
-from datetime import datetime
-from urllib.parse import urlencode
-import json
+from typing import Dict, List, Optional, Union, Generator
 import time
 import os
 

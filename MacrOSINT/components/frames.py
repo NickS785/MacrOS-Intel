@@ -1,16 +1,11 @@
-import sys
-from dash.dcc import Tabs
-from components.chart_components import FundamentalChart, MarketChart, COTPlotter as COTPlot
-from dotenv import load_dotenv
+from MacrOSINT.components.chart_components import FundamentalChart, MarketChart, COTPlotter as COTPlot
 import dash
-from callbacks.callback_registry import CallbackRegistry
-from dash import dcc, html, dash_table, Input, Output, State, callback
+from MacrOSINT.callbacks import CallbackRegistry
+from dash import html, dash_table
 import dash_ag_grid as dag
-from data.data_tables import MarketTable, TableClient, FASTable
-import pandas as pd
+from MacrOSINT.data.data_tables import MarketTable
 import plotly.graph_objects as go
-from typing import List, Dict, Any, Union, Optional, Tuple, Callable
-
+from typing import List, Dict, Any
 
 
 class FundamentalFrame:
@@ -366,7 +361,7 @@ class MarketFrame:
 
 import pandas as pd
 from typing import List, Dict, Any, Optional, Union
-from dash import html, dcc, Input, Output, State, dash, no_update, callback
+from dash import html, dcc, Input, Output, State, dash, no_update
 
 
 class FlexibleMenu:
