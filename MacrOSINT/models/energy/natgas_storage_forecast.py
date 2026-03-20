@@ -293,6 +293,137 @@ def fetch_lng_exports(
     return weekly
 
 
+def _fetch_monthly_to_weekly(
+    raw: pd.DataFrame,
+    series_name: str,
+) -> pd.Series:
+    """
+    Shared helper: sum numeric columns of a raw EIA monthly DataFrame,
+    forward-fill to weekly (W-FRI), and return as a named Series.
+    """
+    if "period" in raw.columns:
+        raw = raw.copy()
+        raw["period"] = pd.to_datetime(raw["period"])
+        raw = raw.set_index("period").sort_index()
+    raw = raw.drop(columns=["units"], errors="ignore")
+    numeric_cols = raw.select_dtypes(include="number").columns
+    if len(numeric_cols) == 0:
+        return pd.Series(dtype=float, name=series_name)
+    monthly_total = raw[numeric_cols].sum(axis=1).astype(float)
+    monthly_total.index = pd.to_datetime(monthly_total.index).to_period("M").to_timestamp("M")
+    weekly_idx = pd.date_range(
+        start=monthly_total.index.min(),
+        end=monthly_total.index.max() + pd.DateOffset(months=1),
+        freq="W-FRI",
+    )
+    weekly = monthly_total.reindex(weekly_idx, method="ffill")
+    weekly.name = series_name
+    return weekly
+
+
+def fetch_sabine_pass_exports(
+    ng_helper: NatGasHelper,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+) -> pd.Series:
+    """
+    Fetch monthly Sabine Pass LNG terminal export volumes (YSPL-Z00)
+    and forward-fill to weekly. Sabine Pass is the largest single US LNG
+    feedgas sink and its outages / ramp-ups drive week-to-week storage surprises.
+
+    Returns:
+        Weekly Series named 'sabine_pass_exports', or empty Series on failure.
+    """
+    try:
+        raw = ng_helper.get_sabine_pass_exports(start=start, end=end)
+    except Exception as e:
+        warnings.warn(f"Sabine Pass export fetch failed ({e}); skipping feature.")
+        return pd.Series(dtype=float, name="sabine_pass_exports")
+    if raw is None or raw.empty:
+        warnings.warn("No Sabine Pass export data returned; skipping feature.")
+        return pd.Series(dtype=float, name="sabine_pass_exports")
+    return _fetch_monthly_to_weekly(raw, "sabine_pass_exports")
+
+
+def fetch_canada_pipeline_imports(
+    ng_helper: NatGasHelper,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+) -> pd.Series:
+    """
+    Fetch monthly Canadian pipeline imports (NUS-NCA, process IRP) and
+    forward-fill to weekly. Canada is the dominant pipeline import source
+    and fluctuates significantly in winter, partially offsetting cold-driven demand.
+
+    Returns:
+        Weekly Series named 'canada_imports', or empty Series on failure.
+    """
+    try:
+        raw = ng_helper.get_canada_pipeline_imports(start=start, end=end)
+    except Exception as e:
+        warnings.warn(f"Canada pipeline import fetch failed ({e}); skipping feature.")
+        return pd.Series(dtype=float, name="canada_imports")
+    if raw is None or raw.empty:
+        warnings.warn("No Canada pipeline import data returned; skipping feature.")
+        return pd.Series(dtype=float, name="canada_imports")
+    return _fetch_monthly_to_weekly(raw, "canada_imports")
+
+
+def load_wind_solar_csv(path: str) -> pd.Series:
+    """
+    Load EIA monthly net generation CSV (downloaded from EIA Electricity
+    Data Browser). Skips the 4 metadata rows, sums wind + utility-scale
+    solar generation, and forward-fills to weekly (W-FRI).
+
+    When wind+solar is above its seasonal norm, gas-fired generation is
+    displaced, suppressing gas demand and producing a positive storage
+    deviation. The _dev form of this series captures that surprise signal.
+
+    Returns:
+        Weekly Series named 'wind_solar' in thousand MWh/month,
+        or empty Series if the file cannot be parsed.
+    """
+    try:
+        df = pd.read_csv(path, skiprows=4)
+    except Exception as e:
+        warnings.warn(f"Wind/solar CSV load failed ({e}); skipping feature.")
+        return pd.Series(dtype=float, name="wind_solar")
+
+    df.columns = df.columns.str.strip()
+    if "Month" not in df.columns:
+        warnings.warn("Wind/solar CSV missing 'Month' column; skipping feature.")
+        return pd.Series(dtype=float, name="wind_solar")
+
+    wind_cols = [c for c in df.columns if "wind" in c.lower()]
+    solar_cols = [c for c in df.columns if "solar" in c.lower()]
+    if not wind_cols or not solar_cols:
+        warnings.warn("Wind/solar CSV missing wind or solar column; skipping feature.")
+        return pd.Series(dtype=float, name="wind_solar")
+
+    df["date"] = pd.to_datetime(df["Month"], format="%b %Y")
+    df = df.set_index("date").sort_index()
+
+    monthly = (df[wind_cols[0]].astype(float) + df[solar_cols[0]].astype(float))
+    monthly.name = "wind_solar"
+    # Anchor each monthly total to the last day of its month so that linear
+    # interpolation transitions smoothly from one month's level to the next,
+    # rather than holding the same value flat across the entire month (ffill).
+    monthly.index = monthly.index.to_period("M").to_timestamp("M")
+
+    weekly_idx = pd.date_range(
+        start=monthly.index.min(),
+        end=monthly.index.max() + pd.DateOffset(months=1),
+        freq="W-FRI",
+    )
+    # Build a combined index of monthly anchors + weekly targets, interpolate
+    # linearly in time between month-end values, then select weekly dates.
+    combined_idx = monthly.index.union(weekly_idx)
+    combined = monthly.reindex(combined_idx).interpolate(method="time")
+    weekly = combined.reindex(weekly_idx)
+    weekly.name = "wind_solar"
+    return weekly
+
+
 # ---------------------------------------------------------------------------
 # Consensus (street estimate) forecast
 # ---------------------------------------------------------------------------
@@ -490,7 +621,10 @@ class NatGasStorageForecaster:
         use_fourier: bool = True,
         n_fourier_harmonics: int = 2,
         use_storage_norm: bool = True,
-        use_lng_exports: bool = True,
+        use_lng_exports: bool = False,
+        use_sabine_pass: bool = False,
+        use_canada_imports: bool = False,
+        use_wind_solar: bool = False,
         use_residual_correction: bool = False,
     ):
         self.ng_helper = ng_helper or NatGasHelper()
@@ -507,6 +641,9 @@ class NatGasStorageForecaster:
         self.n_fourier_harmonics = n_fourier_harmonics
         self.use_storage_norm = use_storage_norm
         self.use_lng_exports = use_lng_exports
+        self.use_sabine_pass = use_sabine_pass
+        self.use_canada_imports = use_canada_imports
+        self.use_wind_solar = use_wind_solar
         self.use_residual_correction = use_residual_correction
 
         if use_spline_hdd and not _SKLEARN_AVAILABLE:
@@ -612,20 +749,41 @@ class NatGasStorageForecaster:
         """
         Add storage_deficit = storage_level minus 5yr rolling seasonal mean
         for the same week-of-year.  Captures mean-reversion regime.
+
+        Also computes <col>_dev (deviation from 5yr seasonal mean) for any
+        signal columns present in df — shares the O(n^2) loop to avoid
+        repeating it per-column.  Signal columns are converted to their _dev
+        form and the raw column is dropped.
         """
+        _SIGNAL_COLS = ["lng_exports", "sabine_pass_exports", "canada_imports", "wind_solar"]
+
         df = df.copy()
         weeks = df.index.isocalendar().week.astype(int)
+        signal_cols = [c for c in _SIGNAL_COLS if c in df.columns]
         deficits = []
+        dev_lists: Dict[str, list] = {c: [] for c in signal_cols}
+
         for i, (idx, row) in enumerate(df.iterrows()):
             wk = int(weeks.iloc[i])
             cutoff = idx - pd.DateOffset(years=5)
             hist = df[(df.index < idx) & (df.index >= cutoff)]
             hist_wk = hist[hist.index.isocalendar().week.astype(int) == wk]
-            if len(hist_wk) >= 3:
-                deficits.append(row["storage_level"] - hist_wk["storage_level"].mean())
-            else:
-                deficits.append(np.nan)
+
+            deficits.append(
+                row["storage_level"] - hist_wk["storage_level"].mean()
+                if len(hist_wk) >= 3 else np.nan
+            )
+
+            for col in signal_cols:
+                valid = hist_wk[col].dropna()
+                dev_lists[col].append(
+                    row[col] - valid.mean() if len(valid) >= 3 else np.nan
+                )
+
         df["storage_deficit"] = deficits
+        for col in signal_cols:
+            df[f"{col}_dev"] = dev_lists[col]
+            df.drop(columns=[col], inplace=True)
         return df
 
     def build_features(
@@ -636,18 +794,25 @@ class NatGasStorageForecaster:
         storage_data: Optional[pd.DataFrame] = None,
         price_data: Optional[pd.Series] = None,
         lng_data: Optional[pd.Series] = None,
+        sabine_pass_data: Optional[pd.Series] = None,
+        canada_imports_data: Optional[pd.Series] = None,
+        wind_solar_data: Optional[pd.Series] = None,
     ) -> pd.DataFrame:
         """
         Assemble the weekly feature matrix.
 
         Includes: storage change (target), population-weighted HDD/CDD,
         spline HDD basis, Fourier seasonal terms, storage deficit vs norm,
-        LNG exports, and optionally spot price.
+        LNG exports, Sabine Pass exports, Canadian pipeline imports,
+        wind+solar generation displacement, and optionally spot price.
 
         Pre-fetched data may be passed to avoid redundant API calls:
-            storage_data: output of fetch_storage_data()
-            price_data:   output of fetch_spot_prices()
-            lng_data:     output of fetch_lng_exports()
+            storage_data:        output of fetch_storage_data()
+            price_data:          output of fetch_spot_prices()
+            lng_data:            output of fetch_lng_exports()
+            sabine_pass_data:    output of fetch_sabine_pass_exports()
+            canada_imports_data: output of fetch_canada_pipeline_imports()
+            wind_solar_data:     output of load_wind_solar_csv()
         """
         start_dt = pd.Timestamp(start).date()
         end_dt = pd.Timestamp(end).date()
@@ -691,13 +856,33 @@ class NatGasStorageForecaster:
 
         # 6b. LNG exports (monthly forward-filled to weekly)
         if self.use_lng_exports:
-            if lng_data is not None:
-                lng = lng_data
-            else:
-                lng = fetch_lng_exports(self.ng_helper, start=start, end=end)
+            lng = lng_data if lng_data is not None else \
+                fetch_lng_exports(self.ng_helper, start=start, end=end)
             if not lng.empty:
                 merged = merged.join(lng, how="left")
                 merged["lng_exports"] = merged["lng_exports"].ffill()
+
+        # 6c. Sabine Pass LNG terminal exports
+        if self.use_sabine_pass:
+            sp = sabine_pass_data if sabine_pass_data is not None else \
+                fetch_sabine_pass_exports(self.ng_helper, start=start, end=end)
+            if not sp.empty:
+                merged = merged.join(sp, how="left")
+                merged["sabine_pass_exports"] = merged["sabine_pass_exports"].ffill()
+
+        # 6d. Canadian pipeline imports
+        if self.use_canada_imports:
+            ca = canada_imports_data if canada_imports_data is not None else \
+                fetch_canada_pipeline_imports(self.ng_helper, start=start, end=end)
+            if not ca.empty:
+                merged = merged.join(ca, how="left")
+                merged["canada_imports"] = merged["canada_imports"].ffill()
+
+        # 6e. Wind + solar generation (renewable displacement of gas-fired power)
+        if self.use_wind_solar and wind_solar_data is not None:
+            if not wind_solar_data.empty:
+                merged = merged.join(wind_solar_data, how="left")
+                merged["wind_solar"] = merged["wind_solar"].ffill()
 
         # 7. Storage deficit vs 5yr norm
         if self.use_storage_norm:
@@ -733,8 +918,17 @@ class NatGasStorageForecaster:
         if self.use_storage_norm and "storage_deficit" in df.columns:
             cols.append("storage_deficit")
 
-        if self.use_lng_exports and "lng_exports" in df.columns:
-            cols.append("lng_exports")
+        if self.use_lng_exports and "lng_exports_dev" in df.columns:
+            cols.append("lng_exports_dev")
+
+        if self.use_sabine_pass and "sabine_pass_exports_dev" in df.columns:
+            cols.append("sabine_pass_exports_dev")
+
+        if self.use_canada_imports and "canada_imports_dev" in df.columns:
+            cols.append("canada_imports_dev")
+
+        if self.use_wind_solar and "wind_solar_dev" in df.columns:
+            cols.append("wind_solar_dev")
 
         if self.use_fourier:
             for h in range(1, self.n_fourier_harmonics + 1):
@@ -865,11 +1059,18 @@ class NatGasStorageForecaster:
         pred = fc.predicted_mean
         ci = fc.conf_int(alpha=0.05)
 
+        # statsmodels returns an integer positional index for the forecast
+        # horizon; use the exog index when available so callers get dates.
+        if future_exog is not None and len(future_exog) == len(pred):
+            idx = future_exog.index
+        else:
+            idx = pred.index
+
         result = pd.DataFrame({
             "forecast":  pred.values,
             "lower_ci":  ci.iloc[:, 0].values,
             "upper_ci":  ci.iloc[:, 1].values,
-        }, index=pred.index)
+        }, index=idx)
 
         # Residual correction
         if (
@@ -897,6 +1098,164 @@ class NatGasStorageForecaster:
         changes["level_lower"]    = last_level + changes["lower_ci"].cumsum()
         changes["level_upper"]    = last_level + changes["upper_ci"].cumsum()
         return changes
+
+    def forecast_from_weekday(
+        self,
+        partial_daily_temps: pd.DataFrame,
+        fill_mode: str = "partial_mean",
+        last_storage_level: Optional[float] = None,
+        price_override: Optional[float] = None,
+    ) -> pd.DataFrame:
+        """
+        Produce a one-step forecast for the current EIA report week using
+        partial daily temperature data available as of Monday or Tuesday.
+
+        The EIA storage week runs Saturday through Friday.  By Monday you
+        have Sat/Sun/Mon actual temps; by Tuesday you have four days.  The
+        remaining days are filled via `fill_mode` and degree days are summed
+        over the synthetic full week.  All monthly exogenous signals (price,
+        exports, imports, wind/solar deviations) are carried forward from the
+        last training row.  Storage deficit is recomputed against the 5-year
+        seasonal mean for the target week using `last_storage_level`.
+
+        Args:
+            partial_daily_temps: Daily weather DataFrame with DatetimeIndex
+                and a 'wtd_TAVG' column.  Should cover at minimum the first
+                2-3 days of the current EIA week (Saturday through as-of date).
+                The as-of date is inferred as the last date in the index.
+            fill_mode: How to fill remaining (unobserved) days of the week.
+                'partial_mean' (default): fill with the mean temp of the days
+                already observed — assumes the rest of the week is average of
+                what has been seen so far.
+                'zero': fill with base temperature (18.33 C) so that unobserved
+                days contribute zero HDD and zero CDD — a conservative lower
+                bound on demand for injection-season weeks.
+            last_storage_level: Storage level (Bcf) from the prior week's EIA
+                report, used to compute storage_deficit.  If None, falls back
+                to the last value in training data.
+            price_override: Spot gas price ($/MMBtu) as of the as-of date.
+                If None, carries forward the last training-data price.
+
+        Returns:
+            DataFrame with columns: forecast, lower_ci, upper_ci
+            (same schema as forecast()), indexed to the target Friday.
+
+        Raises:
+            RuntimeError: if the model has not been fitted.
+            KeyError: if partial_daily_temps lacks 'wtd_TAVG'.
+            ValueError: if fill_mode is unrecognised.
+        """
+        if self._results is None:
+            raise RuntimeError("Model not fitted. Call fit() first.")
+        if self._training_data is None:
+            raise RuntimeError("No training data available.")
+
+        temp_col = "wtd_TAVG"
+        if temp_col not in partial_daily_temps.columns:
+            raise KeyError(
+                f"partial_daily_temps must contain '{temp_col}' column. "
+                f"Available: {list(partial_daily_temps.columns)}"
+            )
+
+        # -- 1. Determine the target Friday (end of current EIA week) ----------
+        last_actual = pd.Timestamp(partial_daily_temps.index.max())
+        # weekday(): Mon=0, Tue=1, Wed=2, Thu=3, Fri=4, Sat=5, Sun=6
+        # Mon → +4d, Tue → +3d, Wed → +2d, Thu → +1d, Fri → 0d, Sat → +6d, Sun → +5d
+        days_until_fri = (4 - last_actual.weekday()) % 7
+        target_friday = last_actual + pd.Timedelta(days=days_until_fri)
+
+        # -- 2. Synthetic full week: Saturday through target Friday -------------
+        week_start = target_friday - pd.Timedelta(days=6)
+        full_week_idx = pd.date_range(week_start, target_friday, freq="D")
+        week_temps = partial_daily_temps.reindex(full_week_idx)
+
+        n_actual = int(week_temps[temp_col].notna().sum())
+        n_filled = len(full_week_idx) - n_actual
+
+        if fill_mode == "partial_mean":
+            fill_val = float(partial_daily_temps[temp_col].mean())
+            week_temps[temp_col] = week_temps[temp_col].fillna(fill_val)
+        elif fill_mode == "zero":
+            week_temps[temp_col] = week_temps[temp_col].fillna(self.base_temp_c)
+        else:
+            raise ValueError(
+                f"Unknown fill_mode '{fill_mode}'. Choose 'partial_mean' or 'zero'."
+            )
+
+        print(
+            f"   Partial-week forecast: target {target_friday.date()}  "
+            f"({n_actual} actual days + {n_filled} filled via '{fill_mode}')"
+        )
+
+        # -- 3. Degree days for the synthetic week -----------------------------
+        dd = compute_degree_days(week_temps, base_temp=self.base_temp_c)
+        weekly_hdd      = float(dd["HDD"].sum())
+        weekly_cdd      = float(dd["CDD"].sum())
+        weekly_hdd_mild = float(dd["HDD_mild"].sum())
+        weekly_hdd_ext  = float(dd["HDD_extreme"].sum())
+
+        # -- 4. HDD feature (spline or piecewise) ------------------------------
+        row: Dict[str, float] = {}
+        if self.use_spline_hdd and self._spline_transformer is not None:
+            basis = self._spline_transformer.transform([[weekly_hdd]])[0]
+            for i, v in enumerate(basis):
+                row[f"HDD_sp{i}"] = v
+        elif self.use_piecewise_hdd:
+            row["HDD_mild"]    = weekly_hdd_mild
+            row["HDD_extreme"] = weekly_hdd_ext
+        else:
+            row["HDD"] = weekly_hdd
+        row["CDD"] = weekly_cdd
+
+        # -- 5. Carry forward monthly signals from last training row -----------
+        last = self._training_data.iloc[-1]
+
+        if self.use_price and "gas_price" in self._exog_cols:
+            row["gas_price"] = (
+                price_override if price_override is not None
+                else float(last.get("gas_price", np.nan))
+            )
+
+        # -- 6. Recompute storage_deficit for the target week ------------------
+        if self.use_storage_norm and "storage_deficit" in self._exog_cols:
+            level = (
+                last_storage_level if last_storage_level is not None
+                else float(last["storage_level"])
+            )
+            wk = int(target_friday.isocalendar().week)
+            cutoff = target_friday - pd.DateOffset(years=5)
+            hist = self._training_data[
+                (self._training_data.index < target_friday) &
+                (self._training_data.index >= cutoff)
+            ]
+            hist_wk = hist[hist.index.isocalendar().week.astype(int) == wk]
+            if len(hist_wk) >= 3:
+                row["storage_deficit"] = level - float(hist_wk["storage_level"].mean())
+            else:
+                row["storage_deficit"] = float(last.get("storage_deficit", 0.0))
+
+        # Carry forward deviation signals (monthly — unchanged mid-week)
+        for col in [
+            "lng_exports_dev",
+            "sabine_pass_exports_dev",
+            "canada_imports_dev",
+            "wind_solar_dev",
+        ]:
+            if col in self._exog_cols:
+                row[col] = float(last.get(col, np.nan))
+
+        # -- 7. Fourier terms for the target week ------------------------------
+        if self.use_fourier:
+            wk_f = float(target_friday.isocalendar().week)
+            for h in range(1, self.n_fourier_harmonics + 1):
+                row[f"sin_{h}"] = float(np.sin(2 * np.pi * h * wk_f / 52))
+                row[f"cos_{h}"] = float(np.cos(2 * np.pi * h * wk_f / 52))
+
+        # -- 8. Assemble and forecast ------------------------------------------
+        exog_row = pd.DataFrame(
+            [row], index=pd.DatetimeIndex([target_friday])
+        )
+        return self.forecast(steps=1, future_exog=exog_row)
 
     # -- diagnostics ---------------------------------------------------------
 
@@ -976,14 +1335,17 @@ class NatGasStorageForecaster:
         hdf_path: str = r"F:\Data\ng_eia_cache.hdf",
     ) -> dict:
         """
-        Load cached EIA data (storage, prices, LNG exports) from HDF5.
-        Returns dict with keys 'storage', 'prices', 'lng_exports' (None if missing).
+        Load cached EIA data from HDF5.
+        Returns dict with keys: 'storage', 'prices', 'lng_exports',
+        'sabine_pass', 'canada_imports' (None if missing).
         """
         result = {}
         for key, attr in [
             ("ng/storage", "storage"),
             ("ng/prices", "prices"),
             ("ng/lng_exports", "lng_exports"),
+            ("ng/sabine_pass", "sabine_pass"),
+            ("ng/canada_imports", "canada_imports"),
         ]:
             result[attr] = NatGasStorageForecaster._hdf_load(hdf_path, key)
         return result
@@ -993,6 +1355,8 @@ class NatGasStorageForecaster:
         storage: Optional[pd.DataFrame] = None,
         prices: Optional[pd.Series] = None,
         lng_exports: Optional[pd.Series] = None,
+        sabine_pass: Optional[pd.Series] = None,
+        canada_imports: Optional[pd.Series] = None,
         hdf_path: str = r"F:\Data\ng_eia_cache.hdf",
     ) -> None:
         """Save EIA data to HDF5 cache for fast reloads."""
@@ -1004,3 +1368,9 @@ class NatGasStorageForecaster:
         if lng_exports is not None:
             lng_df = lng_exports.to_frame() if isinstance(lng_exports, pd.Series) else lng_exports
             NatGasStorageForecaster._hdf_save(lng_df, hdf_path, "ng/lng_exports", "LNG exports")
+        if sabine_pass is not None:
+            sp_df = sabine_pass.to_frame() if isinstance(sabine_pass, pd.Series) else sabine_pass
+            NatGasStorageForecaster._hdf_save(sp_df, hdf_path, "ng/sabine_pass", "Sabine Pass exports")
+        if canada_imports is not None:
+            ca_df = canada_imports.to_frame() if isinstance(canada_imports, pd.Series) else canada_imports
+            NatGasStorageForecaster._hdf_save(ca_df, hdf_path, "ng/canada_imports", "Canada pipeline imports")
