@@ -10,6 +10,10 @@ References:
     - SARIMAX(1,1,1)(1,1,1,52) with exogenous weather + price variables
     - Piecewise / spline HDD for non-linear cold-weather demand response
     - ConsensusForecast: street estimate proxy via seasonal range positioning
+
+Cache File Defaults (edit these to change where HDF5 caches are stored):
+    DEFAULT_WEATHER_HDF : path for daily weather/degree-day cache
+    DEFAULT_EIA_HDF     : path for EIA storage, prices, and flow caches
 """
 import warnings
 from datetime import date, timedelta
@@ -42,6 +46,10 @@ except ImportError:
 BASE_TEMP_F = 65.0
 BASE_TEMP_C = (BASE_TEMP_F - 32) * 5 / 9  # ~18.33 C
 MILD_HDD_CUTOFF = 15.0                      # degrees F below base
+
+# -- Cache file paths (change these to relocate HDF5 storage) ---------------
+DEFAULT_WEATHER_HDF = r"F:\Data\weather.hdf"
+DEFAULT_EIA_HDF     = r"F:\Data\ng_eia_cache.hdf"
 
 
 # ---------------------------------------------------------------------------
@@ -1287,7 +1295,7 @@ class NatGasStorageForecaster:
     @staticmethod
     def save_weather_hdf(
         daily_weather: pd.DataFrame,
-        hdf_path: str = r"F:\Data\weather.hdf",
+        hdf_path: str = DEFAULT_WEATHER_HDF,
         key: str = "weather/ng/storage_weather_data",
     ) -> None:
         path = Path(hdf_path)
@@ -1297,7 +1305,7 @@ class NatGasStorageForecaster:
 
     @staticmethod
     def load_weather_hdf(
-        hdf_path: str = r"F:\Data\weather.hdf",
+        hdf_path: str = DEFAULT_WEATHER_HDF,
         key: str = "weather/ng/storage_weather_data",
     ) -> Optional[pd.DataFrame]:
         path = Path(hdf_path)
@@ -1332,7 +1340,7 @@ class NatGasStorageForecaster:
 
     @staticmethod
     def load_eia_cache(
-        hdf_path: str = r"F:\Data\ng_eia_cache.hdf",
+        hdf_path: str = DEFAULT_EIA_HDF,
     ) -> dict:
         """
         Load cached EIA data from HDF5.
@@ -1357,7 +1365,7 @@ class NatGasStorageForecaster:
         lng_exports: Optional[pd.Series] = None,
         sabine_pass: Optional[pd.Series] = None,
         canada_imports: Optional[pd.Series] = None,
-        hdf_path: str = r"F:\Data\ng_eia_cache.hdf",
+        hdf_path: str = DEFAULT_EIA_HDF,
     ) -> None:
         """Save EIA data to HDF5 cache for fast reloads."""
         if storage is not None:

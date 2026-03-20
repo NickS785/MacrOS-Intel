@@ -559,13 +559,34 @@ class NatGasHelper:
                 )),
 
             # Exports: LNG (ENG) and pipeline (ENP) by border crossing
+            # YSPL-Z00 = Sabine Pass LNG terminal (largest single feedgas sink)
             'lng_exports': ClientParams(
                 route='/move/poe2',
                 columns_col='duoarea',
                 frequency='monthly',
                 facets=FacetParams(
                     process=['ENG'],
-                    duoarea=['NUS-NCA', 'NUS-NMX', 'NUS-Z00'],
+                    duoarea=['NUS-NCA', 'NUS-NMX', 'NUS-Z00', 'YSPL-Z00'],
+                )),
+
+            # Sabine Pass LNG terminal only — highest-volatility single export point
+            'sabine_pass_exports': ClientParams(
+                route='/move/poe2',
+                columns_col='duoarea',
+                frequency='monthly',
+                facets=FacetParams(
+                    process=['ENG'],
+                    duoarea=['YSPL-Z00'],
+                )),
+
+            # Canadian pipeline imports — dominant import source, strong winter signal
+            'canada_pipeline_imports': ClientParams(
+                route='/move/poe1',
+                columns_col='duoarea',
+                frequency='monthly',
+                facets=FacetParams(
+                    process=['IRP'],
+                    duoarea=['NUS-NCA'],
                 )),
 
             'pipeline_exports': ClientParams(
@@ -860,6 +881,22 @@ class NatGasHelper:
     async def get_total_imports_async(self, start=None, end=None, max_concurrent=5):
         """Get US total natural gas imports asynchronously."""
         return await self.execute_request_async('total_imports', start, end, max_concurrent)
+
+    def get_sabine_pass_exports(self, start=None, end=None):
+        """Get Sabine Pass LNG terminal exports (YSPL-Z00)."""
+        return self.execute_request('sabine_pass_exports', start, end)
+
+    async def get_sabine_pass_exports_async(self, start=None, end=None, max_concurrent=5):
+        """Get Sabine Pass LNG terminal exports asynchronously."""
+        return await self.execute_request_async('sabine_pass_exports', start, end, max_concurrent)
+
+    def get_canada_pipeline_imports(self, start=None, end=None):
+        """Get Canadian pipeline imports into the US (NUS-NCA, process IRP)."""
+        return self.execute_request('canada_pipeline_imports', start, end)
+
+    async def get_canada_pipeline_imports_async(self, start=None, end=None, max_concurrent=5):
+        """Get Canadian pipeline imports asynchronously."""
+        return await self.execute_request_async('canada_pipeline_imports', start, end, max_concurrent)
 
     async def get_regional_consumption(self):
 

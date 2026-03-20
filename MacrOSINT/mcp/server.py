@@ -37,6 +37,8 @@ NatGasParamKey = Literal[
     "pipeline_imports",
     "lng_imports",
     "total_imports",
+    "sabine_pass_exports",
+    "canada_pipeline_imports",
 ]
 
 PetroleumFacetKey = Literal[
