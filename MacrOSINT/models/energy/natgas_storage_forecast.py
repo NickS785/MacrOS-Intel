@@ -737,7 +737,9 @@ class NatGasStorageForecaster:
         for i, epoch in enumerate(relevant):
             if epoch < start_epoch:
                 continue
-            seg_start = max(start_dt, date(epoch, 1, 1))
+            # First relevant epoch covers everything from start_dt
+            # (data before the epoch year uses the same grid)
+            seg_start = start_dt if epoch == start_epoch else date(epoch, 1, 1)
             seg_end = (
                 min(end_dt, date(relevant[i + 1] - 1, 12, 31))
                 if i + 1 < len(relevant)
