@@ -15,6 +15,7 @@ Cache File Defaults (edit these to change where HDF5 caches are stored):
     DEFAULT_WEATHER_HDF : path for daily weather/degree-day cache
     DEFAULT_EIA_HDF     : path for EIA storage, prices, and flow caches
 """
+import os
 import warnings
 from datetime import date, timedelta
 from pathlib import Path
@@ -636,7 +637,7 @@ class NatGasStorageForecaster:
         use_residual_correction: bool = False,
     ):
         self.ng_helper = ng_helper or NatGasHelper()
-        self.ncei_token = ncei_token
+        self.ncei_token = ncei_token or os.getenv('NCEI_TOKEN') or ''
         self.config_dir = Path(config_dir) if config_dir else None
         self.base_temp_c = base_temp_c
         self.order = order
